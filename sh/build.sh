@@ -1,10 +1,11 @@
 #!/bin/bash
 mkdir -p dist
-#mkdir -p proxy
+mkdir -p proxy
 # Remove the dev files
-rm -rv dist/*.map
-rm -rv dist/*.mjs
-rm -rv dist/*.js
+#rm -rv dist/*.map
+#rm -rv dist/*.mjs
+#rm -rv dist/*.js
+#rm -rv proxy/*
 # Using esbuild to build all JS files
 #esbuild --bundle src/index.js --outfile=dist/index.js --minify --sourcemap
 #esbuild --bundle src/index.js --target=es6 --outfile=dist/index.es6.js --minify --sourcemap

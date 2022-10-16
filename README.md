@@ -1,15 +1,21 @@
 # Eclipsed
-🗣 The Royal Canterlot Voice for the [EventSource](https://developer.mozilla.org/en-US/docs/Web/API/EventSource) API. Deno only.
+🗣 The Royal Canterlot Voice for the [EventSource](https://developer.mozilla.org/en-US/docs/Web/API/EventSource) API. Supports Cloudflare Workers, Deno and bun.js.
+
+Node.js support isn't considered, and this project would not get uploaded to NPM.
 
 ## Naming
 _I thank thee, dear Fluttershy!_
 
-The name of this project is a reference to MLP:FiM S02E04.
+The name of this project is a reference to MLP:FiM S02E04, _Luna Eclipsed_.
 
 ## Usage
-It's pretty simple, like [`Deno.upgradeWebSocket`](https://deno.land/api?s=Deno.upgradeWebSocket)! Download the latest build from releases, and import the `upgradeEventSource` method from it.
+### Download
+Eclipsed can be fetched from sources listed below.
+* GitHub releases
+* Deno modules
 
-Because `EventSource` is unidirectional, you cannot receive messages from clients.
+### API
+It's pretty simple to use, just like [`Deno.upgradeWebSocket`](https://deno.land/api?s=Deno.upgradeWebSocket)! Although, because `EventSource` is unidirectional, you cannot receive messages from clients.
 
 ### `upgradeEventSource(Request: request)`
 Upgrade an incoming HTTP request to an `EventSource` connection.
@@ -36,5 +42,9 @@ Enqueues data to be transmitted, same as [`WebSocket.send()`](https://developer.
 #### `.onclose`
 Fired when an `EventSource` connection closes.
 
+#### `.onerror`
+Fired when an `EventSource` connection errors out.
+
+
 #### `.onopen`
-Fired when an `EventSource` connection has established.
+Fired when an `EventSource` connection establishes.

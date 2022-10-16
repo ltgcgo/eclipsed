@@ -1,5 +1,5 @@
 # Eclipsed
-🗣 The Royal Canterlot Voice for the [EventSource](https://developer.mozilla.org/en-US/docs/Web/API/EventSource) API. Deno only.
+🗣 The Royal Canterlot Voice for the [EventSource](https://developer.mozilla.org/en-US/docs/Web/API/EventSource) API.
 
 ## Naming
 _I thank thee, dear Fluttershy!_
