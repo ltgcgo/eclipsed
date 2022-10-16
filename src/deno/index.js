@@ -5,17 +5,18 @@ import {
 	EventSourceServer
 } from "../eclipsed/index.mjs";
 
+console.info("This is an Eclipsed demo running on Deno.");
+
 serve((request) => {
 	let {socket, response} = upgradeEventSource(request);
 	let cycles = setInterval(() => {
 		if (socket?.readyState == 1) {
 			socket.send("Test heartbeat.");
-			console.debug(socket?.readyState);
-		} else {
-			console.debug("Closed event source.");
-			socket?.close();
-			clearInterval(cycles);
 		};
-	}, 1000);
+	}, 100);
+	socket.send("Connection has opened!");
+	socket.addEventListener("close", function () {
+		clearInterval(cycles);
+	});
 	return response;
 });

@@ -25,24 +25,22 @@ let EventSourceServer = class extends CustomEventSource {
 	OPEN = 1;
 	// Variables
 	#controller; // The controller object
-	#stream;
-	#copiedStream; // ReadableStream
+	#stream; // ReadableStream
 	#readyState = 0;
 	#queue = [];
 	get stream() {
-		return this.#copiedStream;
+		return this.#stream;
 	};
 	get readyState() {
 		return this.#readyState;
 	};
 	// Methods
 	close() {
-		console.debug("Closing stream.");
+		this.#readyState = 2;
+		this.dispatchEvent("close");
 		if (this.#readyState < 2) {
 			this.#controller.close();
 		};
-		this.#readyState = 2;
-		this.dispatchEvent("close");
 	};
 	send = async function (data) {
 		let encodedData;
@@ -85,8 +83,10 @@ let EventSourceServer = class extends CustomEventSource {
 			this.#controller.enqueue(msgHeader);
 			this.#controller.enqueue(encodedData);
 			this.#controller.enqueue(msgSplit);
-		} else {
+		} else if (this.#readyState == 0) {
 			this.#queue.push(encodedData);
+		} else {
+			throw(new TypeError("Sending to a closed EventSourceServer."));
 		};
 	};
 	constructor() {
@@ -102,24 +102,16 @@ let EventSourceServer = class extends CustomEventSource {
 					let queueSize = 0;
 					this.#queue.forEach((e) => {
 						queueSize += e.length;
+						controller.enqueue(msgHeader);
 						controller.enqueue(e);
 						controller.enqueue(msgSplit);
 					});
-					console.debug(`Sent ${this.#queue.length} messages in queue, ${queueSize} bytes in total.`);
-				} else {
-					console.debug(`Nothing to pull from queue.`);
 				};
 				this.#queue = [];
 				this.dispatchEvent("open");
 			}
 		});
 		this.#stream = sendStream;
-		let sentStream = sendStream.tee();
-		let altReader = sentStream[1].getReader();
-		altReader.closed.then(() => {
-			this.close();
-		});
-		this.#copiedStream = sentStream[0];
 	};
 };
 

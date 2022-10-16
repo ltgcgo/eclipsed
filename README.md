@@ -44,7 +44,3 @@ Fired when an `EventSource` connection closes.
 
 #### `.onerror`
 Fired when an `EventSource` connection errors out.
-
-
-#### `.onopen`
-Fired when an `EventSource` connection establishes.
