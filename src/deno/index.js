@@ -14,8 +14,8 @@ serve((request) => {
 			socket.send("Test heartbeat.");
 		};
 	}, 100);
-	socket.send("Connection has opened!");
-	socket.addEventListener("close", function () {
+	socket?.send("Connection has opened!");
+	socket?.addEventListener("close", function () {
 		clearInterval(cycles);
 	});
 	return response;
