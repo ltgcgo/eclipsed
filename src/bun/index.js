@@ -3,7 +3,7 @@
 import {
 	upgradeEventSource,
 	EventSourceServer
-} from "../eclipsed/index.mjs";
+} from "../server/index.mjs";
 
 console.info("This is an Eclipsed demo running on Bun.");
 

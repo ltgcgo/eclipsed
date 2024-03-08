@@ -3,12 +3,18 @@
 
 Node.js support isn't considered, and this project would not get uploaded to NPM.
 
+Documentation: [kb.ltgc.cc](https://kb.ltgc.cc/eclipsed/).
+
 ## Naming
 _I thank thee, dear Fluttershy!_
 
 The name of this project is a reference to MLP:FiM S02E04, _Luna Eclipsed_.
 
 ## Usage
+> **Warning**
+>
+> Outdated documentation below.
+
 ### Download
 Eclipsed can be fetched from sources listed below.
 * GitHub releases

@@ -1,3 +1,5 @@
 *.map
 *.swp
 /proxy/*
+/dist/*.js
+/dist/*.css
