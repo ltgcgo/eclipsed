@@ -98,7 +98,7 @@ let ServerEvents = class extends EventTarget {
 						let lineReader = new TextEmitter(dialer.body, 0, "utf-8");
 						let eventType, dataRope = "";
 						lineReader.addEventListener("text", ({data}) => {
-							console.debug(data);
+							//console.debug(data);
 							let colonIndex = data?.indexOf(":");
 							if (!data?.trim()?.length) {
 								//console.debug(`Emitting event...`);
