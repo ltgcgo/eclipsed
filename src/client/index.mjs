@@ -126,7 +126,7 @@ let ServerEvents = class extends EventTarget {
 									valueStart ++;
 								};
 								let value = data.slice(valueStart);
-								switch(field) {
+								switch (field) {
 									case "event": {
 										eventType = value;
 										break;

@@ -15,7 +15,7 @@ const commonHeaders = {
 	"Cache-Control": "no-cache, no-store",
 	"Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, OPTIONS",
 	"Access-Control-Allow-Origin": "*"
-}, sucessHeaders = {
+}, successHeaders = {
 	"Server": "Eclipsed",
 	"Content-Type": "text/event-stream",
 	"Cache-Control": "no-cache, no-store",
@@ -32,25 +32,267 @@ const commonHeaders = {
 const u8Enc = new TextEncoder();
 
 /*
-newrx: a new receive-side connection
-newtx: a new send-side connection
+newrx: a new receive-side connection, socket only
+newtx: a new send-side connection, socket only
+connectrx: receive-side connection becomes available
+connecttx: send-side connection becomes available
 connect: a new connection
 message: a new message (rcv)
 error: errors out
+deadrx: a receive-side connection closes, socket only
+deadtx: a send-side connection closes, socket only
 closerx: receive-side closes
 closetx: send-side closes
 close: both closes
 */
 
+let getDebugState = () => {
+	return !!self.debugMode;
+};
+
 let EventSocket = class extends EventTarget {
 	#rootHandler;
-	constructor(root) {
+	#requests = []; // purely requests
+	#responses = []; // responses (0), stream controllers (1)
+	#count = 0;
+	#socketId;
+	#readyState = 0;
+	#oldReqCount = 0;
+	#oldRespCount = 0;
+	#updateState() {
+		let upThis = this;
+		console.debug(`[Eclipsed] Old state: ${upThis.#readyState}`);
+		let readyState = 0;
+		if (upThis.#responses.length) {
+			readyState |= 1;
+		};
+		if (upThis.#requests.length) {
+			readyState |= 2;
+		};
+		if (readyState != upThis.#readyState) {
+			upThis.#readyState = readyState;
+		};
+		console.debug(`[Eclipsed] New state: ${upThis.#readyState}`);
+		let readyNewRx = 0, readyNewTx = 0,
+		deadOldRx = 0, deadOldTx = 0;
+		if (upThis.#requests.length > upThis.#oldReqCount) {
+			console.debug(`[Eclipsed] New Rx`);
+			upThis.dispatchEvent(new Event("newrx"));
+			if (upThis.#oldReqCount < 1) {
+				console.debug(`[Eclipsed] Connect Rx`);
+				upThis.dispatchEvent(new Event("connectrx"));
+				readyNewRx = 1;
+			};
+		} else if (upThis.#requests.length < upThis.#oldReqCount) {
+			console.debug(`[Eclipsed] Dead Rx`);
+			upThis.dispatchEvent(new Event("deadrx"));
+			if (upThis.#requests.length < 1) {
+				console.debug(`[Eclipsed] Close Rx`);
+				upThis.dispatchEvent(new Event("closerx"));
+				deadOldRx = 1;
+			};
+		};
+		if (upThis.#responses.length > upThis.#oldRespCount) {
+			console.debug(`[Eclipsed] New Tx`);
+			upThis.dispatchEvent(new Event("newtx"));
+			if (upThis.#oldRespCount < 1) {
+				console.debug(`[Eclipsed] Connect Tx`);
+				upThis.dispatchEvent(new Event("connecttx"));
+				readyNewTx = 1;
+			};
+		} else if (upThis.#responses.length < upThis.#oldRespCount) {
+			console.debug(`[Eclipsed] Dead Tx`);
+			upThis.dispatchEvent(new Event("deadtx"));
+			if (upThis.#responses.length < 1) {
+				console.debug(`[Eclipsed] Close Tx`);
+				upThis.dispatchEvent(new Event("closetx"));
+				deadOldTx = 1;
+			};
+		};
+		if (readyNewRx * readyNewTx) {
+			console.debug(`[Eclipsed] Connect`);
+			upThis.dispatchEvent(new Event("connect"));
+		};
+		if (deadOldRx * deadOldTx) {
+			console.debug(`[Eclipsed] Close`);
+			upThis.dispatchEvent(new Event("close"));
+		};
+		upThis.#oldReqCount = upThis.#requests.length;
+		upThis.#oldRespCount = upThis.#responses.length;
+	};
+	CLOSED = 0;
+	OPEN = 3;
+	TX_OPEN = 1;
+	RX_OPEN = 2;
+	get id() {
+		return this.#socketId;
+	};
+	get readyState() {
+		return this.#readyState;
+	};
+	getRequest() {
+		let upThis = this;
+		if (this.#requests.length) {
+			return this.#requests[0];
+		};
+	};
+	getResponse() {
+		let upThis = this;
+		if (this.#responses.length) {
+			return this.#responses[0];
+		};
+	};
+	sendEvent(ev = "message") {
+		this.getResponse()[1].enqueue(u8Enc.encode(`event: ${ev}\n`));
+	};
+	sendData(ev) {
+		ev.replaceAll("\r", "\n").replaceAll("\r\n", "\n").split("\n").forEach((e) => {
+			this.getResponse()[1].enqueue(u8Enc.encode(`data: ${e}\n`));
+		});
+	};
+	sendFlush() {
+		let upThis = this;
+		upThis.getResponse()[1].enqueue(u8Enc.encode(`id: ${upThis.#socketId}.${upThis.#count}\n\n`));
+		upThis.#count ++;
+	};
+	send(text, eventType) {
+		let upThis = this;
+		if (eventType) {
+			upThis.sendEvent(eventType);
+		};
+		upThis.sendData(text);
+		upThis.sendFlush();
+	};
+	attachRequest(req) {
+		let upThis = this;
+		this.#requests.push(req);
+		upThis.#updateState();
+		// Same as the client
+		let miniSig = new MiniSignal();
+		let lineReader = new TextEmitter(req.body, 0, "utf-8");
+		let eventType, dataRope = "";
+		lineReader.addEventListener("text", ({data}) => {
+			//console.debug(data);
+			let colonIndex = data?.indexOf(":");
+			if (!data?.trim()?.length) {
+				//console.debug(`Emitting event...`);
+				if (dataRope) {
+					//console.debug(`Type: ${eventType || "message"}`);
+					//console.debug(`Data: ${dataRope}`);
+					upThis.dispatchEvent(new MessageEvent(eventType || "message", {
+						"data": dataRope/*,
+						"origin": upThis.#url*/
+					}));
+					//console.debug(`Event "${eventType || "message"}" emitted. Data length: ${dataRope.length}.`);
+					eventType = undefined;
+					dataRope = "";
+					//upThis.#lastEventId = undefined;
+				} else {
+					//console.debug(`Nothing to emit.`);
+				};
+			} else if (data.codePointAt(0) == 58) {
+				//console.debug(`Line ignored: commented out.`);
+			} else if (colonIndex > -1) {
+				let field = data.slice(0, colonIndex);
+				let valueStart = colonIndex + 1;
+				if (data.codePointAt(colonIndex + 1) == 32) {
+					valueStart ++;
+				};
+				let value = data.slice(valueStart);
+				switch(field) {
+					case "event": {
+						eventType = value;
+						break;
+					};
+					case "data": {
+						if (dataRope.length) {
+							dataRope += "\n";
+						};
+						dataRope += value;
+						break;
+					};
+					/*case "id": {
+						if (data.indexOf("\x00") == -1) {
+							upThis.#lastEventId = value;
+						} else {
+							//console.debug(`Line ignored: event ID contains NULL.`);
+						};
+						break;
+					};
+					case "retry": {
+						let retryMs = parseInt(retryMs);
+						if (retryMs && retryMs >= retryMinDelayMs) {
+							upThis.#retry = retryMs;
+						} else {
+							//console.debug(`Line ignored: invalid retry delay (${value} = ${retryMs}).`);
+						};
+						break;
+					};*/
+					default: {
+						//console.debug(`Line ignored: invalid line.`);
+					};
+				};
+			} else {
+				//console.debug(`Line ignored: no valid field or value.`);
+			};
+		});
+		lineReader.addEventListener("close", () => {
+			miniSig.finish();
+			let reqIdx = upThis.#requests.indexOf(req);
+			if (reqIdx >= 0) {
+				upThis.#requests.splice(reqIdx, 1);
+			};
+			upThis.#updateState();
+		});
+		return miniSig.wait();
+	};
+	async newResponse() {
+		let upThis = this;
+		let pushArr, shouldPush = true;
+		let miniSig = new MiniSignal();
+		let controller;
+		let source = new ReadableStream({
+			"start": (e) => {
+				controller = e;
+				miniSig.finish();
+			},
+			"cancel": (reason) => {
+				if (miniSig.finished) {
+					let respIdx = upThis.#responses.indexOf(pushArr);
+					if (respIdx >= 0) {
+						upThis.#responses.splice(respIdx, 1);
+					};
+					upThis.#updateState();
+				} else {
+					shouldPush = false;
+				};
+			}
+		});
+		let headers = structuredClone(successHeaders);
+		headers["ETag"] = upThis.#socketId;
+		let resp = new Response(source, {
+			"status": 200,
+			"headers": headers
+		});
+		await miniSig.wait();
+		pushArr = [resp, controller];
+		if (shouldPush) {
+			upThis.#responses.push(pushArr);
+			upThis.#updateState();
+		};
+		return resp;
+	};
+	constructor(root, socketId) {
 		super();
 		let upThis = this;
 		if (!root) {
 			throw(new Error("Invalid event socket root"));
 		};
+		if (!socketId) {
+			throw(new Error("Invalid socket ID"));
+		};
 		upThis.#rootHandler = root;
+		upThis.#socketId = socketId;
 	};
 };
 
@@ -59,9 +301,10 @@ let EventSocketHandler = class extends EventTarget {
 	#id;
 	#socketPairs = {};
 	#get(id) {
+		console.debug(`[Eclipsed] Does the socket pool have socket ID "${id}"? ${!!this.#socketPairs[id]}`);
 		return this.#socketPairs[id];
 	};
-	#getFrom
+	//#getFrom
 	constructor() {
 		super();
 		// CORS should always be allowed
@@ -89,7 +332,7 @@ let EventSocketHandler = class extends EventTarget {
 							status: 400,
 							headers: commonHeaders
 						})
-					}
+					};
 				};
 			};
 		};
@@ -100,14 +343,14 @@ let EventSocketHandler = class extends EventTarget {
 					status: 400,
 					headers: commonHeaders
 				})
-			}
+			};
 		};
 		let targetSocket;
 		let existingId;
 		if (req.headers.has("Authorization")) {
 			existingId = req.headers.get("Authorization");
-			if (existingId.slice(0, 7) != "Bearer ") {
-				existingId = undefined;
+			if (existingId.slice(0, 7) == "Bearer ") {
+				existingId = existingId.slice(7);
 			};
 		} else if (req.headers.has("If-Match")) {
 			existingId = req.headers.get("If-Match");
@@ -126,7 +369,69 @@ let EventSocketHandler = class extends EventTarget {
 			targetSocket = upThis.#get(existingId);
 		};
 		if (!targetSocket) {
-			targetSocket = new EventSocket(upThis);
+			let newId = genRandB64(16);
+			targetSocket = new EventSocket(upThis, newId);
+			upThis.#socketPairs[newId] = targetSocket;
+			targetSocket.addEventListener("newrx", (ev) => {
+				upThis.dispatchEvent(new MessageEvent(ev.type, {
+					"data": targetSocket,
+					"source": upThis
+				}));
+			});
+			targetSocket.addEventListener("newtx", (ev) => {
+				upThis.dispatchEvent(new MessageEvent(ev.type, {
+					"data": targetSocket,
+					"source": upThis
+				}));
+			});
+			targetSocket.addEventListener("connectrx", (ev) => {
+				upThis.dispatchEvent(new MessageEvent(ev.type, {
+					"data": targetSocket,
+					"source": upThis
+				}));
+			});
+			targetSocket.addEventListener("connecttx", (ev) => {
+				upThis.dispatchEvent(new MessageEvent(ev.type, {
+					"data": targetSocket,
+					"source": upThis
+				}));
+			});
+			targetSocket.addEventListener("connect", (ev) => {
+				upThis.dispatchEvent(new MessageEvent(ev.type, {
+					"data": targetSocket,
+					"source": upThis
+				}));
+			});
+			targetSocket.addEventListener("deadrx", (ev) => {
+				upThis.dispatchEvent(new MessageEvent(ev.type, {
+					"data": targetSocket,
+					"source": upThis
+				}));
+			});
+			targetSocket.addEventListener("deadtx", (ev) => {
+				upThis.dispatchEvent(new MessageEvent(ev.type, {
+					"data": targetSocket,
+					"source": upThis
+				}));
+			});
+			targetSocket.addEventListener("closerx", (ev) => {
+				upThis.dispatchEvent(new MessageEvent(ev.type, {
+					"data": targetSocket,
+					"source": upThis
+				}));
+			});
+			targetSocket.addEventListener("closetx", (ev) => {
+				upThis.dispatchEvent(new MessageEvent(ev.type, {
+					"data": targetSocket,
+					"source": upThis
+				}));
+			});
+			targetSocket.addEventListener("close", (ev) => {
+				upThis.dispatchEvent(new MessageEvent(ev.type, {
+					"data": targetSocket,
+					"source": upThis
+				}));
+			});
 		};
 		switch (req.method) {
 			case "GET":
@@ -135,11 +440,8 @@ let EventSocketHandler = class extends EventTarget {
 				// The response should be one of the event socket's response streams
 				return {
 					"untilRespond": Promise.resolve(),
-					"response": new Response("Success", {
-						status: 200,
-						headers: sucessHeaders
-					})
-				}
+					"response": targetSocket.newResponse()
+				};
 				break;
 			};
 			case "POST":
@@ -152,13 +454,14 @@ let EventSocketHandler = class extends EventTarget {
 				switch (connType) {
 					case "eventSocket": {
 						// Should only reply when the client send stream is closed
+						targetSocket.attachRequest(req);
 						return {
-							"untilRespond": Promise.resolve(),
+							"untilRespond": targetSocket.attachRequest(req),
 							"response": new Response("Client socket send complete", {
 								status: 200,
-								headers: sucessHeaders
+								headers: successHeaders
 							})
-						}
+						};
 						break;
 					};
 					case "grpc": {
@@ -167,9 +470,9 @@ let EventSocketHandler = class extends EventTarget {
 							"untilRespond": Promise.resolve(),
 							"response": new Response("Client gRPC send complete", {
 								status: 200,
-								headers: sucessHeaders
+								headers: successHeaders
 							})
-						}
+						};
 						break;
 					};
 				};
@@ -183,7 +486,7 @@ let EventSocketHandler = class extends EventTarget {
 						status: 405,
 						headers: commonHeaders
 					})
-				}
+				};
 			};
 		};
 	};
