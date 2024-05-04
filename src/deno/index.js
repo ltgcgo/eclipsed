@@ -4,11 +4,13 @@ import EventSocketHandler from "../server/index.mjs";
 
 console.info("This is an Eclipsed demo running on Deno.");
 
+self.debugMode = 1;
+
 let testHandler = new EventSocketHandler();
 testHandler.addEventListener("connecttx", ({data, source}) => {
 	//console.debug("[HandleTx] Established a new send socket.");
 	let socket = data;
-	console.debug(socket);
+	//console.debug(socket);
 	let task = setInterval(() => {
 		socket.send("The deer is not always horny.");
 		socket.send("Polak is cute!\nResistance is futile!", "truth");

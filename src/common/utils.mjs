@@ -12,7 +12,15 @@ let genRandB64 = (length) => {
 	};
 	return result;
 };
+let getDebugState = () => {
+	return !!self.debugMode;
+};
+let splitByLine = (text) => {
+	return text.replaceAll("\r", "\n").replaceAll("\r\n", "\n").split("\n");
+};
 
 export {
-	genRandB64
+	genRandB64,
+	getDebugState,
+	splitByLine
 };

@@ -6,8 +6,10 @@
 import TextEmitter from "../../libs/rochelle/textEmit.mjs";
 import MiniSignal from "../../libs/twinkle/miniSignal.mjs";
 import {
-	genRandB64
-} from "./utils.mjs";
+	genRandB64,
+	getDebugState,
+	splitByLine
+} from "../common/utils.mjs";
 
 const commonHeaders = {
 	"Server": "Eclipsed",
@@ -46,18 +48,17 @@ close: both closes
 shutdown: socket is no longer usable
 */
 
+const duplexStreamSendTimeout = 2500, // How long to consider an EventSocket strean to be a streamed duplex
+chunkedSendInterval = 500, // When the send socket is chunked, how long to wait when frames of data is sent
+chunkedSendTimeout = 20000; // When the send socket is chunked, how long to wait for the first frame of data, and how long to wait to establish a new send socket
+
 const u8Enc = new TextEncoder();
 const u8HeadData = u8Enc.encode("data: ");
-let getDebugState = () => {
-	return !!self.debugMode;
-};
-let splitByLine = (text) => {
-	return text.replaceAll("\r", "\n").replaceAll("\r\n", "\n").split("\n");
-};
 let errorWithControl = (text, allowNewLines) => {
 	for (let i = 0; i < text.length; i ++) {
-		if (text.charCodeAt(i) < 32) {
-			if (i != 10 && i != 13 || !allowNewLines) {
+		let e = text.charCodeAt(i);
+		if (e < 32) {
+			if (e != 10 && e != 13 || !allowNewLines || e != 9) {
 				throw(new RangeError(`Control characters are not allowed`));
 			};
 		};
@@ -75,31 +76,35 @@ let EventSocket = class extends EventTarget {
 	#oldReqCount = 0;
 	#oldRespCount = 0;
 	#useCustomExt = false;
+	#isStreamedSend = 1; // Indicates responses being buffered and flushed when false
+	#duplexLatency = 0;
 	CLOSED = 0;
 	OPEN = 3;
 	TX_OPEN = 1;
 	RX_OPEN = 2;
+	PROBING = 1;
+	TRUE = 2;
+	FALSE = 0;
 	#shutdown = false;
 	shutdownTimeout = 15000;
 	#updateState() {
 		let upThis = this;
 		if (upThis.#requests.length > upThis.#oldReqCount) {
-			console.debug(`[Eclipsed] New Rx`);
+			//console.debug(`[Eclipsed] New Rx`);
 			upThis.dispatchEvent(new Event("newrx"));
 		} else if (upThis.#requests.length < upThis.#oldReqCount) {
-			console.debug(`[Eclipsed] Dead Rx`);
+			//console.debug(`[Eclipsed] Dead Rx`);
 			upThis.dispatchEvent(new Event("deadrx"));
 		};
 		if (upThis.#responses.length > upThis.#oldRespCount) {
-			console.debug(`[Eclipsed] New Tx`);
+			//console.debug(`[Eclipsed] New Tx`);
 			upThis.dispatchEvent(new Event("newtx"));
 		} else if (upThis.#responses.length < upThis.#oldRespCount) {
-			console.debug(`[Eclipsed] Dead Tx`);
+			//console.debug(`[Eclipsed] Dead Tx`);
 			upThis.dispatchEvent(new Event("deadtx"));
 		};
-		console.debug(`[Eclipsed] Receive sockets: ${upThis.#requests.length}`);
-		console.debug(`[Eclipsed] Send sockets: ${upThis.#responses.length}`);
-		console.debug(`[Eclipsed] Old state: ${upThis.#readyState}`);
+		//console.debug(`[Eclipsed] Receive sockets: ${upThis.#requests.length}`);
+		//console.debug(`[Eclipsed] Send sockets: ${upThis.#responses.length}`);
 		let readyState = 0;
 		if (upThis.#responses.length) {
 			readyState |= 1;
@@ -108,18 +113,20 @@ let EventSocket = class extends EventTarget {
 			readyState |= 2;
 		};
 		if (readyState != upThis.#readyState) {
+			getDebugState() && console.debug(`[Eclipsed] Old state: ${upThis.#readyState}`);
+			getDebugState() && console.debug(`[Eclipsed] New state: ${readyState}`);
 			switch (readyState) {
 				case 0: {
-					console.debug(`[Eclipsed] Close all`);
+					getDebugState() && console.debug(`[Eclipsed] Close all: ${upThis.#socketId}`);
 					upThis.dispatchEvent(new Event("close"));
 					switch (upThis.#readyState) {
 						case 1: {
-							console.debug(`[Eclipsed] Close Tx`);
+							//console.debug(`[Eclipsed] Close Tx`);
 							upThis.dispatchEvent(new Event("closetx"));
 							break;
 						};
 						case 2: {
-							console.debug(`[Eclipsed] Close Rx`);
+							//console.debug(`[Eclipsed] Close Rx`);
 							upThis.dispatchEvent(new Event("closerx"));
 							break;
 						};
@@ -127,21 +134,21 @@ let EventSocket = class extends EventTarget {
 					break;
 				};
 				case 3: {
-					console.debug(`[Eclipsed] Connect duplex`);
+					getDebugState() && console.debug(`[Eclipsed] Connect duplex: ${upThis.#socketId}`);
 					upThis.dispatchEvent(new Event("connect"));
 					break;
 				};
 				case 1: {
 					switch (upThis.#readyState) {
 						case 0: {
-							console.debug(`[Eclipsed] Connect Tx`);
+							//console.debug(`[Eclipsed] Connect Tx`);
 							upThis.dispatchEvent(new Event("connecttx"));
 							break;
 						};
 						case 3: {
-							console.debug(`[Eclipsed] Close Rx`);
+							//console.debug(`[Eclipsed] Close Rx`);
 							upThis.dispatchEvent(new Event("closerx"));
-							console.debug(`[Eclipsed] No duplex`);
+							getDebugState() && console.debug(`[Eclipsed] No duplex: ${upThis.#socketId}`);
 							upThis.dispatchEvent(new Event("dangle"));
 							break;
 						};
@@ -151,14 +158,14 @@ let EventSocket = class extends EventTarget {
 				case 2: {
 					switch (upThis.#readyState) {
 						case 0: {
-							console.debug(`[Eclipsed] Connect Rx`);
+							//console.debug(`[Eclipsed] Connect Rx`);
 							upThis.dispatchEvent(new Event("connectrx"));
 							break;
 						};
 						case 3: {
-							console.debug(`[Eclipsed] Close Tx`);
+							//console.debug(`[Eclipsed] Close Tx`);
 							upThis.dispatchEvent(new Event("closetx"));
-							console.debug(`[Eclipsed] No duplex`);
+							//console.debug(`[Eclipsed] No duplex`);
 							upThis.dispatchEvent(new Event("dangle"));
 							break;
 						};
@@ -168,7 +175,6 @@ let EventSocket = class extends EventTarget {
 			};
 			upThis.#readyState = readyState;
 		};
-		console.debug(`[Eclipsed] New state: ${upThis.#readyState}`);
 		upThis.#oldReqCount = upThis.#requests.length;
 		upThis.#oldRespCount = upThis.#responses.length;
 	};
@@ -269,12 +275,12 @@ let EventSocket = class extends EventTarget {
 		upThis.sendFlush();
 	};
 	useCustomExt(state) {
-		console.debug(`[Eclipsed] Connection supports Eclipsed custom extensions.`);
+		//getDebugState() && console.debug(`[Eclipsed] Connection supports Eclipsed custom extensions.`);
 		this.#useCustomExt = state;
 	};
 	close() {
 		let upThis = this;
-		console.debug(`[Eclipsed] Closing down the socket: ${upThis.#socketId}...`);
+		getDebugState() && console.debug(`[Eclipsed] Closing down the socket: ${upThis.#socketId}...`);
 		while (upThis.#requests.length > 0) {
 			upThis.#requests[0].cancel();
 			upThis.#requests.splice(0, 1);
@@ -303,7 +309,8 @@ let EventSocket = class extends EventTarget {
 					/*console.debug(`Type: ${eventType || "message"}`);
 					console.debug(`Data: ${dataRope}`);*/
 					upThis.dispatchEvent(new MessageEvent(eventType || "message", {
-						"data": dataRope/*,
+						"data": dataRope,
+						"source": upThis/*,
 						"origin": upThis.#url*/
 					}));
 					//console.debug(`Event "${eventType || "message"}" emitted. Data length: ${dataRope.length}.`);
@@ -315,6 +322,12 @@ let EventSocket = class extends EventTarget {
 				};
 			} else if (data.codePointAt(0) == 58) {
 				//console.debug(`Line ignored: commented out.`);
+				if (data.indexOf("eclipsed:") == 1) {
+					upThis.dispatchEvent(new MessageEvent("eclipsedext", {
+						"data": data.slice(10),
+						"source": upThis
+					}));
+				};
 			} else if (colonIndex > -1) {
 				let field = data.slice(0, colonIndex);
 				let valueStart = colonIndex + 1;
@@ -418,7 +431,7 @@ let EventSocket = class extends EventTarget {
 		upThis.#socketId = socketId;
 		upThis.#useRandom = !!useRandom;
 		upThis.addEventListener("connecttx", () => {
-			upThis.sendComment("cc.ltgc.eclipsed:new");
+			upThis.sendComment("eclipsed:new"); // Prompt the client to begin duplex connection
 		});
 		/*upThis.addEventListener("message", ({data}) => {
 			console.debug(`[Eclipsed] Default message data received: "${data}"`)
@@ -427,8 +440,40 @@ let EventSocket = class extends EventTarget {
 			await MiniSignal.sleep(Math.max(10000, upThis.shutdownTimeout));
 			if (upThis.#readyState == 0) {
 				upThis.#shutdown = true;
-				console.debug(`[Eclipsed] Socket ${upThis.#socketId} shutdown`);
+				getDebugState() && console.debug(`[Eclipsed] Socket ${upThis.#socketId} shutdown`);
 				upThis.dispatchEvent(new Event("shutdown"));
+			};
+		});
+		let pingChallenges = {};
+		upThis.addEventListener("eclipsedext", async ({data}) => {
+			let extDesc = data.split("\t");
+			let timeNow = Date.now();
+			getDebugState() && console.debug(`[Eclipsed] Extension: ${extDesc}`);
+			switch (extDesc[0]) {
+				case "syn": {
+					let currentChallenge = extDesc[1];
+					pingChallenges[currentChallenge] = timeNow;
+					getDebugState() && console.debug(`[Eclipsed] Sending SYN/ACK`);
+					upThis.sendComment(`eclipsed:synack\t${currentChallenge}`);
+					break;
+				};
+				case "ack": {
+					let currentChallenge = extDesc[1];
+					let rttDelay = timeNow - pingChallenges[currentChallenge];
+					if (rttDelay < duplexStreamSendTimeout) {
+						upThis.#isStreamedSend = 2;
+						getDebugState() && console.debug(`[Eclipsed] Connection ${upThis.#socketId} is streamed (${rttDelay}ms).`);
+					} else {
+						upThis.#isStreamedSend = 0;
+						getDebugState() && console.debug(`[Eclipsed] Connection ${upThis.#socketId} is chunked (${rttDelay}ms).`);
+					};
+					delete pingChallenges[extDesc[1]];
+					upThis.#duplexLatency = rttDelay;
+					break;
+				};
+				default: {
+					console.debug(`[Eclipsed] Unmatched extension: ${extDesc}`);
+				};
 			};
 		});
 	};
@@ -492,7 +537,8 @@ let EventSocketHandler = class extends EventTarget {
 			if (existingId.slice(0, 7) == "Bearer ") {
 				existingId = existingId.slice(7);
 			};
-		} else if (req.headers.has("If-Match")) {
+		};
+		if (!existingId && req.headers.has("If-Match")) {
 			existingId = req.headers.get("If-Match");
 			if (existingId.slice(0, 2) == "W/") {
 				existingId = existingId.slice(2);
@@ -507,6 +553,8 @@ let EventSocketHandler = class extends EventTarget {
 		};
 		if (existingId) {
 			targetSocket = upThis.#get(existingId);
+		} else {
+			getDebugState() && console.debug(`[Eclipsed] The new connection has no ID.`);
 		};
 		if (!targetSocket) {
 			let newId = existingId || genRandB64(16);
