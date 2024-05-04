@@ -9,7 +9,7 @@ testHandler.addEventListener("connecttx", ({data, source}) => {
 	console.debug("[HandleTx] Established a new send socket.");
 	let socket = data;
 	let task = setInterval(() => {
-		socket.send("The deer is always horny!");
+		socket.send("The deer is not always horny.");
 		socket.send("Polak is cute!\nResistance is futile!", "truth");
 	}, 1000);
 	socket.addEventListener("closetx", () => {
