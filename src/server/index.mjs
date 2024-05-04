@@ -50,15 +50,34 @@ let getDebugState = () => {
 	return !!self.debugMode;
 };
 
+let splitByLine = (text) => {
+	return text.replaceAll("\r", "\n").replaceAll("\r\n", "\n").split("\n");
+};
+let errorWithControl = (text, allowNewLines) => {
+	for (let i = 0; i < text.length; i ++) {
+		if (text.charCodeAt(i) < 32) {
+			if (i != 10 && i != 13 || !allowNewLines) {
+				throw(new RangeError(`Control characters are not allowed`));
+			};
+		};
+	};
+};
+
 let EventSocket = class extends EventTarget {
 	#rootHandler;
 	#requests = []; // purely requests
 	#responses = []; // responses (0), stream controllers (1)
-	#count = 0;
 	#socketId;
+	#useRandom = false;
+	#count = 0;
 	#readyState = 0;
 	#oldReqCount = 0;
 	#oldRespCount = 0;
+	#useCustomExt = false;
+	CLOSED = 0;
+	OPEN = 3;
+	TX_OPEN = 1;
+	RX_OPEN = 2;
 	#updateState() {
 		let upThis = this;
 		console.debug(`[Eclipsed] Old state: ${upThis.#readyState}`);
@@ -117,13 +136,11 @@ let EventSocket = class extends EventTarget {
 			console.debug(`[Eclipsed] Close`);
 			upThis.dispatchEvent(new Event("close"));
 		};
+		console.debug(`[Eclipsed] Receive sockets: ${upThis.#requests.length}`);
+		console.debug(`[Eclipsed] Send sockets: ${upThis.#responses.length}`);
 		upThis.#oldReqCount = upThis.#requests.length;
 		upThis.#oldRespCount = upThis.#responses.length;
 	};
-	CLOSED = 0;
-	OPEN = 3;
-	TX_OPEN = 1;
-	RX_OPEN = 2;
 	get id() {
 		return this.#socketId;
 	};
@@ -132,27 +149,37 @@ let EventSocket = class extends EventTarget {
 	};
 	getRequest() {
 		let upThis = this;
-		if (this.#requests.length) {
-			return this.#requests[0];
+		if (upThis.#requests.length) {
+			return upThis.#requests[0];
 		};
 	};
 	getResponse() {
 		let upThis = this;
-		if (this.#responses.length) {
-			return this.#responses[0];
+		if (upThis.#responses.length) {
+			return upThis.#responses[0];
 		};
 	};
 	sendEvent(ev = "message") {
+		errorWithControl(ev);
 		this.getResponse()[1].enqueue(u8Enc.encode(`event: ${ev}\n`));
 	};
 	sendData(ev) {
-		ev.replaceAll("\r", "\n").replaceAll("\r\n", "\n").split("\n").forEach((e) => {
+		splitByLine(ev).forEach((e) => {
 			this.getResponse()[1].enqueue(u8Enc.encode(`data: ${e}\n`));
+		});
+	};
+	sendComment(ev) {
+		splitByLine(ev).forEach((e) => {
+			this.getResponse()[1].enqueue(u8Enc.encode(`:${e}\n`));
 		});
 	};
 	sendFlush() {
 		let upThis = this;
-		upThis.getResponse()[1].enqueue(u8Enc.encode(`id: ${upThis.#socketId}.${upThis.#count}\n\n`));
+		if (!upThis.#useCustomExt) {
+			upThis.getResponse()[1].enqueue(u8Enc.encode(`id: ${upThis.#socketId}.${upThis.#count}\n\n`));
+		} else {
+			upThis.getResponse()[1].enqueue(u8Enc.encode(`\n`));
+		};
 		upThis.#count ++;
 	};
 	send(text, eventType) {
@@ -163,10 +190,15 @@ let EventSocket = class extends EventTarget {
 		upThis.sendData(text);
 		upThis.sendFlush();
 	};
+	useCustomExt(state) {
+		console.debug(`[Eclipsed] Connection supports Eclipsed custom extensions.`);
+		this.#useCustomExt = state;
+	};
 	attachRequest(req) {
 		let upThis = this;
 		this.#requests.push(req);
 		upThis.#updateState();
+		upThis.useCustomExt(true);
 		// Same as the client
 		let miniSig = new MiniSignal();
 		let lineReader = new TextEmitter(req.body, 0, "utf-8");
@@ -282,7 +314,7 @@ let EventSocket = class extends EventTarget {
 		};
 		return resp;
 	};
-	constructor(root, socketId) {
+	constructor(root, socketId, useRandom) {
 		super();
 		let upThis = this;
 		if (!root) {
@@ -293,6 +325,10 @@ let EventSocket = class extends EventTarget {
 		};
 		upThis.#rootHandler = root;
 		upThis.#socketId = socketId;
+		upThis.#useRandom = !!useRandom;
+		upThis.addEventListener("connecttx", () => {
+			upThis.sendComment("cc.ltgc.eclipsed:new");
+		});
 	};
 };
 
@@ -369,7 +405,7 @@ let EventSocketHandler = class extends EventTarget {
 			targetSocket = upThis.#get(existingId);
 		};
 		if (!targetSocket) {
-			let newId = genRandB64(16);
+			let newId = existingId || genRandB64(16);
 			targetSocket = new EventSocket(upThis, newId);
 			upThis.#socketPairs[newId] = targetSocket;
 			targetSocket.addEventListener("newrx", (ev) => {
@@ -438,6 +474,9 @@ let EventSocketHandler = class extends EventTarget {
 			case "get": {
 				// Send-only
 				// The response should be one of the event socket's response streams
+				if (existingId) {
+					targetSocket.useCustomExt(true);
+				};
 				return {
 					"untilRespond": Promise.resolve(),
 					"response": targetSocket.newResponse()

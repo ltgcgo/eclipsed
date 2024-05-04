@@ -3,3 +3,5 @@
 /proxy/*
 /dist/*.js
 /dist/*.css
+.zsh_history
+.zcompdump
