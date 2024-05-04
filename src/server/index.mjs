@@ -46,6 +46,7 @@ deadtx: a send-side connection closes
 closerx: receive-side closes
 closetx: send-side closes
 close: both closes
+shutdown: socket is no longer usable
 */
 
 let getDebugState = () => {
@@ -81,6 +82,7 @@ let EventSocket = class extends EventTarget {
 	TX_OPEN = 1;
 	RX_OPEN = 2;
 	#shutdown = false;
+	shutdownTimeout = 15000;
 	#updateState() {
 		let upThis = this;
 		if (upThis.#requests.length > upThis.#oldReqCount) {
@@ -423,7 +425,14 @@ let EventSocket = class extends EventTarget {
 		/*upThis.addEventListener("message", ({data}) => {
 			console.debug(`[Eclipsed] Default message data received: "${data}"`)
 		});*/
-		//upThis.addEventListener("")
+		upThis.addEventListener("close", async () => {
+			await MiniSignal.sleep(Math.max(10000, upThis.shutdownTimeout));
+			if (upThis.#readyState == 0) {
+				upThis.#shutdown = true;
+				console.debug(`[Eclipsed] Socket ${upThis.#socketId} shutdown`);
+				upThis.dispatchEvent(new Event("shutdown"));
+			};
+		});
 	};
 };
 
@@ -431,14 +440,16 @@ let EventSocketHandler = class extends EventTarget {
 	static EventSocket = EventSocket;
 	#id;
 	#socketPairs = {};
+	shutdownTimeout = 15000;
 	#get(id) {
 		console.debug(`[Eclipsed] Does the socket pool have socket ID "${id}"? ${!!this.#socketPairs[id]}`);
 		return this.#socketPairs[id];
 	};
 	//#getFrom
-	constructor() {
+	constructor(shutdownTimeout = 15000) {
 		super();
 		// CORS should always be allowed
+		this.shutdownTimeout = shutdownTimeout;
 	};
 	upgradeEventStream(req) {
 		let upThis = this;
@@ -533,6 +544,12 @@ let EventSocketHandler = class extends EventTarget {
 					"source": upThis
 				}));
 			});
+			targetSocket.addEventListener("dangle", (ev) => {
+				upThis.dispatchEvent(new MessageEvent(ev.type, {
+					"data": targetSocket,
+					"source": upThis
+				}));
+			});
 			targetSocket.addEventListener("deadrx", (ev) => {
 				upThis.dispatchEvent(new MessageEvent(ev.type, {
 					"data": targetSocket,
@@ -562,6 +579,9 @@ let EventSocketHandler = class extends EventTarget {
 					"data": targetSocket,
 					"source": upThis
 				}));
+			});
+			targetSocket.addEventListener("shutdown", (ev) => {
+				delete upThis.#socketPairs[newId];
 			});
 		};
 		switch (req.method) {
