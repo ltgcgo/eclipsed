@@ -18,10 +18,9 @@ duplexStreamSendTimeout = 2500, // How long to consider an EventSocket strean to
 chunkedSendInterval = 500, // When the send socket is chunked, how long to wait when frames of data is sent
 chunkedSendTimeout = 20000; // When the send socket is chunked, how long to wait for the first frame of data, and how long to wait to establish a new send socket
 
-self.debugMode = 1;
-
 const u8Enc = new TextEncoder();
 const u8HeadData = u8Enc.encode("data: ");
+const u8EofData = u8Enc.encode("\n\n");
 
 let ServerEvents = class extends EventTarget {
 	// Read-only section
@@ -136,7 +135,7 @@ let ServerEvents = class extends EventTarget {
 						let lineReader = new TextEmitter(dialer.body, 0, "utf-8");
 						let eventType, dataRope = "";
 						lineReader.addEventListener("text", ({data}) => {
-							//console.debug(data);
+							console.debug(data);
 							let colonIndex = data?.indexOf(":");
 							if (!data?.trim()?.length) {
 								//console.debug(`Emitting event...`);
@@ -297,7 +296,7 @@ let ServerEvents = class extends EventTarget {
 		upThis.addEventListener("eclipsedext", async ({data}) => {
 			let extDesc = data.split("\t");
 			let timeNow = Date.now();
-			getDebugState() && console.debug(`[Eclipsed] Extension: ${extDesc}`);
+			//getDebugState() && console.debug(`[Eclipsed] Extension: ${extDesc}`);
 			try {
 				switch (extDesc[0]) {
 					case "new": {
@@ -317,10 +316,10 @@ let ServerEvents = class extends EventTarget {
 							let rttDelay = timeNow - pingStart;
 							if (rttDelay < duplexStreamSendTimeout) {
 								upThis.#isStreamedSend = 2;
-								getDebugState() && console.debug(`[Eclipsed] Connection ${upThis.#socketId} is streamed (${rttDelay}ms).`);
+								//getDebugState() && console.debug(`[Eclipsed] Connection ${upThis.#socketId} is streamed (${rttDelay}ms).`);
 							} else {
 								upThis.#isStreamedSend = 0;
-								getDebugState() && console.debug(`[Eclipsed] Connection ${upThis.#socketId} is chunked (${rttDelay}ms).`);
+								//getDebugState() && console.debug(`[Eclipsed] Connection ${upThis.#socketId} is chunked (${rttDelay}ms).`);
 							};
 							delete pingChallenges[currentChallenge];
 							upThis.#duplexLatency = rttDelay;
@@ -401,7 +400,13 @@ let ServerEvents = class extends EventTarget {
 				"refererPolicy": upThis.refererPolicy
 			});
 			await miniSig.wait();
-			upThis.fetch(req);
+			(async () => {
+				try {
+					await upThis.fetch(req);
+				} catch (err) {
+					console.debug(err);
+				};
+			})();
 			pushArr = [req, controller];
 			if (shouldPush) {
 				upThis.#requests.push(pushArr);
@@ -409,6 +414,7 @@ let ServerEvents = class extends EventTarget {
 			};
 		};
 		//console.debug(`[Eclipsed] Skipped send socket creation.`);
+		//await MiniSignal.sleep(1000);
 		return;
 	};
 	#getRequest() {
@@ -449,7 +455,7 @@ let ServerEvents = class extends EventTarget {
 			await upThis.#prepareSend();
 		};
 		// Only UTF-8-encoded byte sequences are allowed
-		if (!ev?.byteLength || ev.byteLength != 1) {
+		if (!ev?.BYTES_PER_ELEMENT || ev.BYTES_PER_ELEMENT != 1) {
 			throw(new TypeError("Only Uint8Array is accepted"));
 		};
 		let lastPtr = 0, committed = false;
@@ -461,6 +467,7 @@ let ServerEvents = class extends EventTarget {
 					if (!committed) {
 						upThis.#getRequest()[1].enqueue(u8HeadData);
 						upThis.#getRequest()[1].enqueue(ev.subarray(lastPtr, ptr));
+						upThis.#getRequest()[1].enqueue(u8EofData);
 						committed = true;
 					};
 					lastPtr = ptr + 1;
@@ -475,7 +482,8 @@ let ServerEvents = class extends EventTarget {
 		};
 		if (!committed) {
 			upThis.#getRequest()[1].enqueue(u8HeadData);
-			upThis.#getRequest()[1].enqueue(ev.subarray(lastPtr, ptr));
+			upThis.#getRequest()[1].enqueue(ev.subarray(lastPtr));
+			upThis.#getRequest()[1].enqueue(u8EofData);
 		};
 	};
 	async sendComment(ev, noPrepareSend) {

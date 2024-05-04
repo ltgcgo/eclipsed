@@ -52,8 +52,11 @@ const duplexStreamSendTimeout = 2500, // How long to consider an EventSocket str
 chunkedSendInterval = 500, // When the send socket is chunked, how long to wait when frames of data is sent
 chunkedSendTimeout = 20000; // When the send socket is chunked, how long to wait for the first frame of data, and how long to wait to establish a new send socket
 
+const closedSocket = Symbol("closedSocket");
+
 const u8Enc = new TextEncoder();
 const u8HeadData = u8Enc.encode("data: ");
+const u8EofData = u8Enc.encode("\n\n");
 let errorWithControl = (text, allowNewLines) => {
 	for (let i = 0; i < text.length; i ++) {
 		let e = text.charCodeAt(i);
@@ -127,6 +130,12 @@ let EventSocket = class extends EventTarget {
 						};
 						case 2: {
 							//console.debug(`[Eclipsed] Close Rx`);
+							upThis.dispatchEvent(new Event("closerx"));
+							break;
+						};
+						case 3: {
+							upThis.dispatchEvent(new Event("dangle"));
+							upThis.dispatchEvent(new Event("closetx"));
 							upThis.dispatchEvent(new Event("closerx"));
 							break;
 						};
@@ -217,7 +226,7 @@ let EventSocket = class extends EventTarget {
 			throw(new Error(`Tried to send data through a closed socket`));
 		};
 		// Only UTF-8-encoded byte sequences are allowed
-		if (!ev?.byteLength || ev.byteLength != 1) {
+		if (!ev?.BYTES_PER_ELEMENT || ev.BYTES_PER_ELEMENT != 1) {
 			throw(new TypeError("Only Uint8Array is accepted"));
 		};
 		let lastPtr = 0, committed = false;
@@ -229,6 +238,7 @@ let EventSocket = class extends EventTarget {
 					if (!committed) {
 						upThis.getResponse()[1].enqueue(u8HeadData);
 						upThis.getResponse()[1].enqueue(ev.subarray(lastPtr, ptr));
+						upThis.getResponse()[1].enqueue(u8EofData);
 						committed = true;
 					};
 					lastPtr = ptr + 1;
@@ -243,7 +253,8 @@ let EventSocket = class extends EventTarget {
 		};
 		if (!committed) {
 			upThis.getResponse()[1].enqueue(u8HeadData);
-			upThis.getResponse()[1].enqueue(ev.subarray(lastPtr, ptr));
+			upThis.getResponse()[1].enqueue(ev.subarray(lastPtr));
+			upThis.getResponse()[1].enqueue(u8EofData);
 		};
 	};
 	sendComment(ev) {
@@ -301,7 +312,7 @@ let EventSocket = class extends EventTarget {
 		let lineReader = new TextEmitter(req.body, 0, "utf-8");
 		let eventType, dataRope = "";
 		lineReader.addEventListener("text", ({data}) => {
-			//console.debug(data);
+			console.debug(data);
 			let colonIndex = data?.indexOf(":");
 			if (!data?.trim()?.length) {
 				//console.debug(`Emitting event...`);
@@ -309,8 +320,7 @@ let EventSocket = class extends EventTarget {
 					/*console.debug(`Type: ${eventType || "message"}`);
 					console.debug(`Data: ${dataRope}`);*/
 					upThis.dispatchEvent(new MessageEvent(eventType || "message", {
-						"data": dataRope,
-						"source": upThis/*,
+						"data": dataRope/*,
 						"origin": upThis.#url*/
 					}));
 					//console.debug(`Event "${eventType || "message"}" emitted. Data length: ${dataRope.length}.`);
@@ -324,8 +334,7 @@ let EventSocket = class extends EventTarget {
 				//console.debug(`Line ignored: commented out.`);
 				if (data.indexOf("eclipsed:") == 1) {
 					upThis.dispatchEvent(new MessageEvent("eclipsedext", {
-						"data": data.slice(10),
-						"source": upThis
+						"data": data.slice(10)
 					}));
 				};
 			} else if (colonIndex > -1) {
@@ -448,7 +457,7 @@ let EventSocket = class extends EventTarget {
 		upThis.addEventListener("eclipsedext", async ({data}) => {
 			let extDesc = data.split("\t");
 			let timeNow = Date.now();
-			getDebugState() && console.debug(`[Eclipsed] Extension: ${extDesc}`);
+			//getDebugState() && console.debug(`[Eclipsed] Extension: ${extDesc}`);
 			switch (extDesc[0]) {
 				case "syn": {
 					let currentChallenge = extDesc[1];
@@ -556,78 +565,76 @@ let EventSocketHandler = class extends EventTarget {
 		} else {
 			getDebugState() && console.debug(`[Eclipsed] The new connection has no ID.`);
 		};
+		if (targetSocket == closedSocket) {
+			return {
+				"untilRespond": Promise.resolve(),
+				"response": new Response("Closed socket", {
+					status: 404,
+					headers: commonHeaders
+				})
+			};
+		};
 		if (!targetSocket) {
 			let newId = existingId || genRandB64(16);
 			targetSocket = new EventSocket(upThis, newId);
 			upThis.#socketPairs[newId] = targetSocket;
 			targetSocket.addEventListener("newrx", (ev) => {
 				upThis.dispatchEvent(new MessageEvent(ev.type, {
-					"data": targetSocket,
-					"source": upThis
+					"data": targetSocket
 				}));
 			});
 			targetSocket.addEventListener("newtx", (ev) => {
 				upThis.dispatchEvent(new MessageEvent(ev.type, {
-					"data": targetSocket,
-					"source": upThis
+					"data": targetSocket
 				}));
 			});
 			targetSocket.addEventListener("connectrx", (ev) => {
 				upThis.dispatchEvent(new MessageEvent(ev.type, {
-					"data": targetSocket,
-					"source": upThis
+					"data": targetSocket
 				}));
 			});
 			targetSocket.addEventListener("connecttx", (ev) => {
 				upThis.dispatchEvent(new MessageEvent(ev.type, {
-					"data": targetSocket,
-					"source": upThis
+					"data": targetSocket
 				}));
 			});
 			targetSocket.addEventListener("connect", (ev) => {
 				upThis.dispatchEvent(new MessageEvent(ev.type, {
-					"data": targetSocket,
-					"source": upThis
+					"data": targetSocket
 				}));
 			});
 			targetSocket.addEventListener("dangle", (ev) => {
 				upThis.dispatchEvent(new MessageEvent(ev.type, {
-					"data": targetSocket,
-					"source": upThis
+					"data": targetSocket
 				}));
 			});
 			targetSocket.addEventListener("deadrx", (ev) => {
 				upThis.dispatchEvent(new MessageEvent(ev.type, {
-					"data": targetSocket,
-					"source": upThis
+					"data": targetSocket
 				}));
 			});
 			targetSocket.addEventListener("deadtx", (ev) => {
 				upThis.dispatchEvent(new MessageEvent(ev.type, {
-					"data": targetSocket,
-					"source": upThis
+					"data": targetSocket
 				}));
 			});
 			targetSocket.addEventListener("closerx", (ev) => {
 				upThis.dispatchEvent(new MessageEvent(ev.type, {
-					"data": targetSocket,
-					"source": upThis
+					"data": targetSocket
 				}));
 			});
 			targetSocket.addEventListener("closetx", (ev) => {
 				upThis.dispatchEvent(new MessageEvent(ev.type, {
-					"data": targetSocket,
-					"source": upThis
+					"data": targetSocket
 				}));
 			});
 			targetSocket.addEventListener("close", (ev) => {
 				upThis.dispatchEvent(new MessageEvent(ev.type, {
-					"data": targetSocket,
-					"source": upThis
+					"data": targetSocket
 				}));
 			});
 			targetSocket.addEventListener("shutdown", (ev) => {
-				delete upThis.#socketPairs[newId];
+				upThis.#socketPairs[newId] = closedSocket;
 			});
 		};
 		switch (req.method) {

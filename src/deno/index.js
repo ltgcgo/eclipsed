@@ -9,7 +9,7 @@ self.debugMode = 1;
 let testHandler = new EventSocketHandler();
 testHandler.addEventListener("connecttx", ({data, source}) => {
 	//console.debug("[HandleTx] Established a new send socket.");
-	let socket = data;
+	let socket = source;
 	//console.debug(socket);
 	let task = setInterval(() => {
 		socket.send("The deer is not always horny.");
@@ -20,7 +20,7 @@ testHandler.addEventListener("connecttx", ({data, source}) => {
 	});
 });
 testHandler.addEventListener("connectrx", ({data, source}) => {
-	let socket = data;
+	let socket = source;
 	socket.addEventListener("message", ({data}) => {
 		console.debug(`[Web Root] Message received: ${data}`);
 	});
