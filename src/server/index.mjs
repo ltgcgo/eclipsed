@@ -30,6 +30,7 @@ const commonHeaders = {
 // Eclipsed will not establish a true gRPC connection
 
 const u8Enc = new TextEncoder();
+const u8HeadData = u8Enc.encode("data: ");
 
 /*
 newrx: a new receive-side connection, socket only
@@ -168,6 +169,37 @@ let EventSocket = class extends EventTarget {
 			this.getResponse()[1].enqueue(u8Enc.encode(`data: ${e}\n`));
 		});
 	};
+	sendDataRaw(ev) {
+		// Only UTF-8-encoded byte sequences are allowed
+		if (!ev?.byteLength || ev.byteLength != 1) {
+			throw(new TypeError("Only Uint8Array is accepted"));
+		};
+		let lastPtr = 0, committed = false;
+		for (let ptr = 0; ptr < ev.length; ptr ++) {
+			let e = ev[ptr];
+			switch (e) {
+				case 10:
+				case 13: {
+					if (!committed) {
+						this.getResponse()[1].enqueue(u8HeadData);
+						this.getResponse()[1].enqueue(ev.subarray(lastPtr, ptr));
+						committed = true;
+					};
+					lastPtr = ptr + 1;
+				};
+				default: {
+					if (e < 32) {
+						ev[ptr] = 32;
+					};
+					committed = false;
+				};
+			};
+		};
+		if (!committed) {
+			this.getResponse()[1].enqueue(u8HeadData);
+			this.getResponse()[1].enqueue(ev.subarray(lastPtr, ptr));
+		};
+	};
 	sendComment(ev) {
 		splitByLine(ev).forEach((e) => {
 			this.getResponse()[1].enqueue(u8Enc.encode(`:${e}\n`));
@@ -193,6 +225,19 @@ let EventSocket = class extends EventTarget {
 	useCustomExt(state) {
 		console.debug(`[Eclipsed] Connection supports Eclipsed custom extensions.`);
 		this.#useCustomExt = state;
+	};
+	close() {
+		let upThis = this;
+		console.debug(`[Eclipsed] Closing down the socket: ${upThis.#socketId}...`);
+		while (upThis.#requests.length > 0) {
+			upThis.#requests[0].cancel();
+			upThis.#requests.splice(0, 1);
+		};
+		while (upThis.#responses.length > 0) {
+			upThis.#responses[0][1].close();
+			upThis.#responses.splice(0, 1);
+		};
+		upThis.#updateState();
 	};
 	attachRequest(req) {
 		let upThis = this;

@@ -10,7 +10,7 @@ testHandler.addEventListener("connecttx", ({data, source}) => {
 	let socket = data;
 	let task = setInterval(() => {
 		socket.send("The deer is always horny!");
-		socket.send("Polak is cute!", "truth");
+		socket.send("Polak is cute!\nResistance is futile!", "truth");
 	}, 1000);
 	socket.addEventListener("closetx", () => {
 		clearInterval(task);
