@@ -29,9 +29,6 @@ const commonHeaders = {
 // Last-Event-ID is only used to reinstate connections, not resend events
 // Eclipsed will not establish a true gRPC connection
 
-const u8Enc = new TextEncoder();
-const u8HeadData = u8Enc.encode("data: ");
-
 /*
 newrx: a new receive-side connection
 newtx: a new send-side connection
@@ -49,10 +46,11 @@ close: both closes
 shutdown: socket is no longer usable
 */
 
+const u8Enc = new TextEncoder();
+const u8HeadData = u8Enc.encode("data: ");
 let getDebugState = () => {
 	return !!self.debugMode;
 };
-
 let splitByLine = (text) => {
 	return text.replaceAll("\r", "\n").replaceAll("\r\n", "\n").split("\n");
 };

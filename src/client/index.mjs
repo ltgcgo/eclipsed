@@ -10,6 +10,9 @@ const maxRetries = 3,
 retryDelayMs = 3000,
 retryMinDelayMs = 200;
 
+const u8Enc = new TextEncoder();
+const u8HeadData = u8Enc.encode("data: ");
+
 let ServerEvents = class extends EventTarget {
 	// Read-only section
 	#readyState = 0;
@@ -18,6 +21,9 @@ let ServerEvents = class extends EventTarget {
 	#lastEventId;
 	#signal;
 	#retry = retryDelayMs;
+	CONNECTING = 0;
+	OPEN = 1;
+	CLOSED = 2;
 	get readyState() {
 		return this.#readyState;
 	};
@@ -37,6 +43,7 @@ let ServerEvents = class extends EventTarget {
 	redirect = "follow";
 	referer;
 	refererPolicy = "no-referrer-when-downgrade";
+	acceptDuplex = false;
 	close() {
 		this.#readyState = 2;
 		this.#signal.abort();

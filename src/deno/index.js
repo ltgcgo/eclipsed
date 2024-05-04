@@ -6,7 +6,7 @@ console.info("This is an Eclipsed demo running on Deno.");
 
 let testHandler = new EventSocketHandler();
 testHandler.addEventListener("connecttx", ({data, source}) => {
-	console.debug("[HandleTx] Established a new send socket.");
+	//console.debug("[HandleTx] Established a new send socket.");
 	let socket = data;
 	console.debug(socket);
 	let task = setInterval(() => {
