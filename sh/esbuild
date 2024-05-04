@@ -1,4 +1,8 @@
 #!/bin/bash
 args=( "$@" )
-deno run --allow-env --allow-net --allow-read --allow-write --allow-run deno/esbuild/mod.js ${args[@]}
+if [ -f "$(which deno)" ] ; then
+	shx esdeno ${args[@]}
+elif [ -f "$(which esbuild)" ] ; then
+	esbuild ${args[@]}
+fi
 exit

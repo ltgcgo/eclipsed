@@ -1,4 +1,5 @@
 #!/bin/bash
+mkdir -p deno
 cd deno
 cat ../conf/denoDeps.txt | while IFS= read -r depLine; do
 	IFS=" " read -ra depSrc <<< $depLine
@@ -10,7 +11,8 @@ cat ../conf/denoDeps.txt | while IFS= read -r depLine; do
 			;;
 		*)
 			printf "Downloading \"${depSrc[0]}\" from \"${depSrc[1]}\"... "
-			curl -Lso "${depSrc[0]}" "${depSrc[1]}"
+			#curl -Lso "${depSrc[0]}" "${depSrc[1]}"
+			deno bundle "${depSrc[1]}" "${depSrc[0]}"
 			echo "OK."
 			;;
 	esac

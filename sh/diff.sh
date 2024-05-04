@@ -1,5 +1,4 @@
 #!/bin/bash
 # shx Standard Utility
-shx build
-shx commit $1
-exit
+git stage -A
+git diff ${1:-HEAD}
