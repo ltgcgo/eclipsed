@@ -33,15 +33,16 @@ const u8Enc = new TextEncoder();
 const u8HeadData = u8Enc.encode("data: ");
 
 /*
-newrx: a new receive-side connection, socket only
-newtx: a new send-side connection, socket only
+newrx: a new receive-side connection
+newtx: a new send-side connection
 connectrx: receive-side connection becomes available
 connecttx: send-side connection becomes available
 connect: a new connection
-message: a new message (rcv)
+dangle: connection is no longer duplex
+message: a new message (rcv), socket only
 error: errors out
-deadrx: a receive-side connection closes, socket only
-deadtx: a send-side connection closes, socket only
+deadrx: a receive-side connection closes
+deadtx: a send-side connection closes
 closerx: receive-side closes
 closetx: send-side closes
 close: both closes
@@ -79,8 +80,25 @@ let EventSocket = class extends EventTarget {
 	OPEN = 3;
 	TX_OPEN = 1;
 	RX_OPEN = 2;
+	#shutdown = false;
 	#updateState() {
 		let upThis = this;
+		if (upThis.#requests.length > upThis.#oldReqCount) {
+			console.debug(`[Eclipsed] New Rx`);
+			upThis.dispatchEvent(new Event("newrx"));
+		} else if (upThis.#requests.length < upThis.#oldReqCount) {
+			console.debug(`[Eclipsed] Dead Rx`);
+			upThis.dispatchEvent(new Event("deadrx"));
+		};
+		if (upThis.#responses.length > upThis.#oldRespCount) {
+			console.debug(`[Eclipsed] New Tx`);
+			upThis.dispatchEvent(new Event("newtx"));
+		} else if (upThis.#responses.length < upThis.#oldRespCount) {
+			console.debug(`[Eclipsed] Dead Tx`);
+			upThis.dispatchEvent(new Event("deadtx"));
+		};
+		console.debug(`[Eclipsed] Receive sockets: ${upThis.#requests.length}`);
+		console.debug(`[Eclipsed] Send sockets: ${upThis.#responses.length}`);
 		console.debug(`[Eclipsed] Old state: ${upThis.#readyState}`);
 		let readyState = 0;
 		if (upThis.#responses.length) {
@@ -90,55 +108,67 @@ let EventSocket = class extends EventTarget {
 			readyState |= 2;
 		};
 		if (readyState != upThis.#readyState) {
+			switch (readyState) {
+				case 0: {
+					console.debug(`[Eclipsed] Close all`);
+					upThis.dispatchEvent(new Event("close"));
+					switch (upThis.#readyState) {
+						case 1: {
+							console.debug(`[Eclipsed] Close Tx`);
+							upThis.dispatchEvent(new Event("closetx"));
+							break;
+						};
+						case 2: {
+							console.debug(`[Eclipsed] Close Rx`);
+							upThis.dispatchEvent(new Event("closerx"));
+							break;
+						};
+					};
+					break;
+				};
+				case 3: {
+					console.debug(`[Eclipsed] Connect duplex`);
+					upThis.dispatchEvent(new Event("connect"));
+					break;
+				};
+				case 1: {
+					switch (upThis.#readyState) {
+						case 0: {
+							console.debug(`[Eclipsed] Connect Tx`);
+							upThis.dispatchEvent(new Event("connecttx"));
+							break;
+						};
+						case 3: {
+							console.debug(`[Eclipsed] Close Rx`);
+							upThis.dispatchEvent(new Event("closerx"));
+							console.debug(`[Eclipsed] No duplex`);
+							upThis.dispatchEvent(new Event("dangle"));
+							break;
+						};
+					};
+					break;
+				};
+				case 2: {
+					switch (upThis.#readyState) {
+						case 0: {
+							console.debug(`[Eclipsed] Connect Rx`);
+							upThis.dispatchEvent(new Event("connectrx"));
+							break;
+						};
+						case 3: {
+							console.debug(`[Eclipsed] Close Tx`);
+							upThis.dispatchEvent(new Event("closetx"));
+							console.debug(`[Eclipsed] No duplex`);
+							upThis.dispatchEvent(new Event("dangle"));
+							break;
+						};
+					};
+					break;
+				};
+			};
 			upThis.#readyState = readyState;
 		};
 		console.debug(`[Eclipsed] New state: ${upThis.#readyState}`);
-		let readyNewRx = 0, readyNewTx = 0,
-		deadOldRx = 0, deadOldTx = 0;
-		if (upThis.#requests.length > upThis.#oldReqCount) {
-			console.debug(`[Eclipsed] New Rx`);
-			upThis.dispatchEvent(new Event("newrx"));
-			if (upThis.#oldReqCount < 1) {
-				console.debug(`[Eclipsed] Connect Rx`);
-				upThis.dispatchEvent(new Event("connectrx"));
-				readyNewRx = 1;
-			};
-		} else if (upThis.#requests.length < upThis.#oldReqCount) {
-			console.debug(`[Eclipsed] Dead Rx`);
-			upThis.dispatchEvent(new Event("deadrx"));
-			if (upThis.#requests.length < 1) {
-				console.debug(`[Eclipsed] Close Rx`);
-				upThis.dispatchEvent(new Event("closerx"));
-				deadOldRx = 1;
-			};
-		};
-		if (upThis.#responses.length > upThis.#oldRespCount) {
-			console.debug(`[Eclipsed] New Tx`);
-			upThis.dispatchEvent(new Event("newtx"));
-			if (upThis.#oldRespCount < 1) {
-				console.debug(`[Eclipsed] Connect Tx`);
-				upThis.dispatchEvent(new Event("connecttx"));
-				readyNewTx = 1;
-			};
-		} else if (upThis.#responses.length < upThis.#oldRespCount) {
-			console.debug(`[Eclipsed] Dead Tx`);
-			upThis.dispatchEvent(new Event("deadtx"));
-			if (upThis.#responses.length < 1) {
-				console.debug(`[Eclipsed] Close Tx`);
-				upThis.dispatchEvent(new Event("closetx"));
-				deadOldTx = 1;
-			};
-		};
-		if (readyNewRx * readyNewTx) {
-			console.debug(`[Eclipsed] Connect`);
-			upThis.dispatchEvent(new Event("connect"));
-		};
-		if (deadOldRx * deadOldTx) {
-			console.debug(`[Eclipsed] Close`);
-			upThis.dispatchEvent(new Event("close"));
-		};
-		console.debug(`[Eclipsed] Receive sockets: ${upThis.#requests.length}`);
-		console.debug(`[Eclipsed] Send sockets: ${upThis.#responses.length}`);
 		upThis.#oldReqCount = upThis.#requests.length;
 		upThis.#oldRespCount = upThis.#responses.length;
 	};
@@ -161,15 +191,25 @@ let EventSocket = class extends EventTarget {
 		};
 	};
 	sendEvent(ev = "message") {
+		if (this.#shutdown) {
+			throw(new Error(`Tried to send data through a closed socket`));
+		};
 		errorWithControl(ev);
 		this.getResponse()[1].enqueue(u8Enc.encode(`event: ${ev}\n`));
 	};
 	sendData(ev) {
+		if (this.#shutdown) {
+			throw(new Error(`Tried to send data through a closed socket`));
+		};
 		splitByLine(ev).forEach((e) => {
 			this.getResponse()[1].enqueue(u8Enc.encode(`data: ${e}\n`));
 		});
 	};
 	sendDataRaw(ev) {
+		let upThis = this;
+		if (upThis.#shutdown) {
+			throw(new Error(`Tried to send data through a closed socket`));
+		};
 		// Only UTF-8-encoded byte sequences are allowed
 		if (!ev?.byteLength || ev.byteLength != 1) {
 			throw(new TypeError("Only Uint8Array is accepted"));
@@ -181,8 +221,8 @@ let EventSocket = class extends EventTarget {
 				case 10:
 				case 13: {
 					if (!committed) {
-						this.getResponse()[1].enqueue(u8HeadData);
-						this.getResponse()[1].enqueue(ev.subarray(lastPtr, ptr));
+						upThis.getResponse()[1].enqueue(u8HeadData);
+						upThis.getResponse()[1].enqueue(ev.subarray(lastPtr, ptr));
 						committed = true;
 					};
 					lastPtr = ptr + 1;
@@ -196,16 +236,22 @@ let EventSocket = class extends EventTarget {
 			};
 		};
 		if (!committed) {
-			this.getResponse()[1].enqueue(u8HeadData);
-			this.getResponse()[1].enqueue(ev.subarray(lastPtr, ptr));
+			upThis.getResponse()[1].enqueue(u8HeadData);
+			upThis.getResponse()[1].enqueue(ev.subarray(lastPtr, ptr));
 		};
 	};
 	sendComment(ev) {
+		if (this.#shutdown) {
+			throw(new Error(`Tried to send data through a closed socket`));
+		};
 		splitByLine(ev).forEach((e) => {
 			this.getResponse()[1].enqueue(u8Enc.encode(`:${e}\n`));
 		});
 	};
 	sendFlush() {
+		if (this.#shutdown) {
+			throw(new Error(`Tried to send data through a closed socket`));
+		};
 		let upThis = this;
 		if (!upThis.#useCustomExt) {
 			upThis.getResponse()[1].enqueue(u8Enc.encode(`id: ${upThis.#socketId}.${upThis.#count}\n\n`));
@@ -254,8 +300,8 @@ let EventSocket = class extends EventTarget {
 			if (!data?.trim()?.length) {
 				//console.debug(`Emitting event...`);
 				if (dataRope) {
-					//console.debug(`Type: ${eventType || "message"}`);
-					//console.debug(`Data: ${dataRope}`);
+					/*console.debug(`Type: ${eventType || "message"}`);
+					console.debug(`Data: ${dataRope}`);*/
 					upThis.dispatchEvent(new MessageEvent(eventType || "message", {
 						"data": dataRope/*,
 						"origin": upThis.#url*/
@@ -374,6 +420,10 @@ let EventSocket = class extends EventTarget {
 		upThis.addEventListener("connecttx", () => {
 			upThis.sendComment("cc.ltgc.eclipsed:new");
 		});
+		/*upThis.addEventListener("message", ({data}) => {
+			console.debug(`[Eclipsed] Default message data received: "${data}"`)
+		});*/
+		//upThis.addEventListener("")
 	};
 };
 
@@ -538,7 +588,6 @@ let EventSocketHandler = class extends EventTarget {
 				switch (connType) {
 					case "eventSocket": {
 						// Should only reply when the client send stream is closed
-						targetSocket.attachRequest(req);
 						return {
 							"untilRespond": targetSocket.attachRequest(req),
 							"response": new Response("Client socket send complete", {

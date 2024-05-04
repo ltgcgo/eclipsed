@@ -8,12 +8,19 @@ let testHandler = new EventSocketHandler();
 testHandler.addEventListener("connecttx", ({data, source}) => {
 	console.debug("[HandleTx] Established a new send socket.");
 	let socket = data;
+	console.debug(socket);
 	let task = setInterval(() => {
 		socket.send("The deer is not always horny.");
 		socket.send("Polak is cute!\nResistance is futile!", "truth");
 	}, 1000);
 	socket.addEventListener("closetx", () => {
 		clearInterval(task);
+	});
+});
+testHandler.addEventListener("connectrx", ({data, source}) => {
+	let socket = data;
+	socket.addEventListener("message", ({data}) => {
+		console.debug(`[Web Root] Message received: ${data}`);
 	});
 });
 
