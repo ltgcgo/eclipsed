@@ -53,17 +53,17 @@ testHandler.addEventListener("connect", async ({data}) => {
 		let resumed = true;
 		while (resumed) {
 			try {
-				console.debug(`Waiting to read response...`);
+				//console.debug(`Waiting to read response...`);
 				let {value, done} = await tcpSocket.reader.read();
 				resumed = !done;
 				if (value) {
-					console.debug(`Incoming response data read.`);
+					//console.debug(`Incoming response data read.`);
 					let encodedData = new Uint8Array(ovm43.encodeLength(value.length));
 					ovm43.encodeBytes(value, encodedData);
 					//console.debug(encodedData);
 					socket.sendDataRaw(encodedData);
 				} else {
-					console.debug(`Incoming response data ended.`);
+					//console.debug(`Incoming response data ended.`);
 					socket.close();
 				};
 			} catch (err) {
