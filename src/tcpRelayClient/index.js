@@ -39,6 +39,7 @@ for await (let conn of tcpServer) {
 		let originalData = u8Enc.encode(data);
 		let decodedData = new Uint8Array(ovm43.decodeLength(originalData.length));
 		ovm43.decodeBytes(originalData, decodedData);
+		console.debug(decodedData);
 		await conn.writer.write(decodedData);
 	});
 	await miniSig.wait();
@@ -52,8 +53,10 @@ for await (let conn of tcpServer) {
 			if (value) {
 				let encodedData = new Uint8Array(ovm43.encodeLength(value.length));
 				ovm43.encodeBytes(value, encodedData);
+				console.debug(encodedData);
 				await sseClient.sendDataRaw(encodedData);
-			} else {
+			} else if (done) {
+				await MiniSignal.sleep(160);
 				sseClient.close();
 			};
 		} catch (err) {

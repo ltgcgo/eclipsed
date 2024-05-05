@@ -4,6 +4,7 @@
 "use strict";
 
 import EventSocketHandler from "../server/index.mjs";
+import MiniSignal from "../../libs/twinkle/miniSignal.mjs";
 import {Loaf} from "../../libs/bread/bread.mjs";
 
 self.debugMode = 1;
@@ -22,14 +23,13 @@ let clientMsgHandler = async function ({data}) {
 	console.debug(`Message handler: ${socket.id}.`);
 	let tcpSocket = tcpClientPool[socket.id];
 	if (tcpSocket) {
-		console.debug(`Sending...`);
 		// Decode data
 		let originalData = u8Enc.encode(data);
 		let decodedData = new Uint8Array(ovm43.decodeLength(originalData.length));
 		ovm43.decodeBytes(originalData, decodedData);
+		console.debug(decodedData);
 		// Write data to the TCP socket
 		await tcpSocket.writer.write(decodedData);
-		console.debug(`Sent.`);
 	} else {
 		socket.msgBuffer = socket.msgBuffer || [];
 		socket.msgBuffer.push(data);
@@ -53,16 +53,17 @@ testHandler.addEventListener("connect", async ({data}) => {
 		let resumed = true;
 		while (resumed) {
 			try {
-				console.debug(`Waiting to read...`);
+				console.debug(`Waiting to read response...`);
 				let {value, done} = await tcpSocket.reader.read();
 				resumed = !done;
 				if (value) {
-					console.debug(`Incoming data read.`);
+					console.debug(`Incoming response data read.`);
 					let encodedData = new Uint8Array(ovm43.encodeLength(value.length));
 					ovm43.encodeBytes(value, encodedData);
+					console.debug(encodedData);
 					socket.sendDataRaw(encodedData);
 				} else {
-					console.debug(`Incoming data ended.`);
+					console.debug(`Incoming response data ended.`);
 					socket.close();
 				};
 			} catch (err) {
@@ -72,7 +73,7 @@ testHandler.addEventListener("connect", async ({data}) => {
 		};
 	})();
 	socket.msgBuffer?.forEach((e) => {
-		clientMsgHandler.call(socket, e);
+		clientMsgHandler.call(socket, {data: e});
 	});
 });
 testHandler.addEventListener("dangle", ({data}) => {
