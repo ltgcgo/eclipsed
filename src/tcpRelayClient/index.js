@@ -39,29 +39,31 @@ for await (let conn of tcpServer) {
 		let originalData = u8Enc.encode(data);
 		let decodedData = new Uint8Array(ovm43.decodeLength(originalData.length));
 		ovm43.decodeBytes(originalData, decodedData);
-		console.debug(decodedData);
+		//console.debug(decodedData);
 		await conn.writer.write(decodedData);
 	});
 	await miniSig.wait();
-	let resumed = true;
-	while (resumed) {
-		try {
-			console.debug(`Waiting to read...`);
-			let {value, done} = await conn.reader.read();
-			console.debug(`Incoming data read.`);
-			resumed = !done;
-			if (value) {
-				let encodedData = new Uint8Array(ovm43.encodeLength(value.length));
-				ovm43.encodeBytes(value, encodedData);
-				console.debug(encodedData);
-				await sseClient.sendDataRaw(encodedData);
-			} else if (done) {
-				await MiniSignal.sleep(160);
-				sseClient.close();
+	(async () => {
+		let resumed = true;
+		while (resumed) {
+			try {
+				console.debug(`Waiting to read...`);
+				let {value, done} = await conn.reader.read();
+				console.debug(`Incoming data read.`);
+				resumed = !done;
+				if (value) {
+					let encodedData = new Uint8Array(ovm43.encodeLength(value.length));
+					ovm43.encodeBytes(value, encodedData);
+					//console.debug(encodedData);
+					await sseClient.sendDataRaw(encodedData);
+				} else if (done) {
+					await MiniSignal.sleep(160);
+					sseClient.close();
+				};
+			} catch (err) {
+				console.debug(err);
+				resumed = false;
 			};
-		} catch (err) {
-			console.debug(err);
-			resumed = false;
 		};
-	};
+	})();
 };

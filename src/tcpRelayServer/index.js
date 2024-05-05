@@ -27,7 +27,7 @@ let clientMsgHandler = async function ({data}) {
 		let originalData = u8Enc.encode(data);
 		let decodedData = new Uint8Array(ovm43.decodeLength(originalData.length));
 		ovm43.decodeBytes(originalData, decodedData);
-		console.debug(decodedData);
+		//console.debug(decodedData);
 		// Write data to the TCP socket
 		await tcpSocket.writer.write(decodedData);
 	} else {
@@ -60,7 +60,7 @@ testHandler.addEventListener("connect", async ({data}) => {
 					console.debug(`Incoming response data read.`);
 					let encodedData = new Uint8Array(ovm43.encodeLength(value.length));
 					ovm43.encodeBytes(value, encodedData);
-					console.debug(encodedData);
+					//console.debug(encodedData);
 					socket.sendDataRaw(encodedData);
 				} else {
 					console.debug(`Incoming response data ended.`);
