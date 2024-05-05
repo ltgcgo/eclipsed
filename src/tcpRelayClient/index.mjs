@@ -40,7 +40,11 @@ for await (let conn of tcpServer) {
 		let decodedData = new Uint8Array(ovm43.decodeLength(originalData.length));
 		ovm43.decodeBytes(originalData, decodedData);
 		//console.debug(decodedData);
-		await conn.writer.write(decodedData);
+		try {
+			await conn.writer.write(decodedData);
+		} catch (err) {
+			console.error(err)
+		};
 	});
 	await miniSig.wait();
 	(async () => {

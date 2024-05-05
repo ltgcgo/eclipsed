@@ -82,7 +82,11 @@ testHandler.addEventListener("dangle", ({data}) => {
 	socket.removeEventListener("message", clientMsgHandler);
 	let tcpSocket = tcpClientPool[socket.id];
 	if (tcpSocket) {
-		tcpSocket.close();
+		try {
+			tcpSocket.close();
+		} catch (err) {
+			console.error(err);
+		};
 		delete tcpClientPool[socket.id];
 	};
 });
